@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 창문 대시보드</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            text-align: center;
+            padding: 30px 10px;
+            margin: 0;
+            color: #333;
+        }
+        .container {
+            background: white;
+            max-width: 450px;
+            margin: 0 auto;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h2 { margin-bottom: 20px; color: #2c3e50; }
+        
+        /* 섹션 박스 공통 스타일 */
+        .section-box {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: left;
+            border: 1px solid #e9ecef;
+        }
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 10px;
+        }
+        
+        /* 상태 및 센서 텍스트 */
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.95rem;
+        }
+        .info-item {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        .status-open { color: #27ae60; font-weight: bold; }
+        .status-closed { color: #c0392b; font-weight: bold; }
+
+        /* 제어 버튼 및 슬라이더 */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            flex: 1;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.8; }
+        .btn-open { background-color: #2ecc71; }
+        .btn-close { background-color: #e74c3c; }
+        .btn-mode { background-color: #3498db; margin-top: 5px; width: 100%; }
+
+        /* 슬라이더 영역 */
+        .slider-container {
+            margin-top: 15px;
+            text-align: center;
+        }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* 로그 영역 */
+        .log-box {
+            font-size: 0.85rem;
+            color: #666;
+            background: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>🪟 스마트 창문 제어 시스템</h2>
+        
+        <!-- 1. 현재 창문 및 모드 상태 -->
+        <div class="section-box">
+            <div class="section-title">📊 시스템 상태</div>
+            <div style="font-size: 1.1rem; margin-bottom: 8px;">
+                현재 상태: <span id="windowStatus" class="status-closed">확인 중...</span>
+            </div>
+            <div style="font-size: 0.95rem; color: #555;">
+                운영 모드: <strong id="modeStatus">AUTO</strong>
+            </div>
+            <button class="btn-mode" onclick="toggleMode()">모드 변경 (AUTO ⇄ MANUAL)</button>
+        </div>
+
+        <!-- 2. 센서 정보 (온습도, 미세먼지, 빗물) -->
+        <div class="section-box">
+            <div class="section-title">🌤️ 주변 환경 센서</div>
+            <div class="info-grid">
+                <div class="info-item">실내 온도: <span id="tempVal">--</span>°C</div>
+                <div class="info-item">실내 습도: <span id="humVal">--</span>%</div>
+                <div class="info-item">미세먼지: <span id="dustVal">--</span> ㎍/㎥</div>
+                <div class="info-item">강우 감지: <span id="rainVal">--</span></div>
+            </div>
+        </div>
+
+        <!-- 3. 수동 제어 및 개폐율 조절 -->
+        <div class="section-box">
+            <div class="section-title">🕹️ 수동 제어 패널</div>
+            <div class="btn-group">
+                <button class="btn-open" onclick="controlWindow('OPEN', 100)">완전 열기</button>
+                <button class="btn-close" onclick="controlWindow('CLOSE', 0)">완전 닫기</button>
+            </div>
+            <div class="slider-container">
+                <label for="rangeSlider" style="font-size: 0.9rem; display: block; margin-bottom: 5px;">
+                    개폐율 조절: <span id="rangeValue">0</span>%
+                </label>
+                <input type="range" id="rangeSlider" min="0" max="100" value="0" onmouseup="sliderControl(this.value)">
+            </div>
+        </div>
+
+        <!-- 4. 최근 동작 로그 -->
+        <div class="section-box" style="margin-bottom: 0;">
+            <div class="section-title">📝 최근 기록</div>
+            <div id="logText" class="log-box">기록을 불러오는 중...</div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK (최신 13.0.0 버전) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
+
+        // 🔥 본인의 파이어베이스 설정값 (기존에 쓰시던 것 유지)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBZ_K4PTEklsEigH8lwVYbWeGOGZRYIgac",
+            authDomain: "smartwindow-88a10.firebaseapp.com",
+            projectId: "smartwindow-88a10",
+            storageBucket: "smartwindow-88a10.firebasestorage.app",
+            messagingSenderId: "766578741499",
+            appId: "1:766578741499:web:722aa6b05b632432d0a05e"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const statusElement = document.getElementById("windowStatus");
+        const modeElement = document.getElementById("modeStatus");
+        const tempElement = document.getElementById("tempVal");
+        const humElement = document.getElementById("humVal");
+        const dustElement = document.getElementById("dustVal");
+        const rainElement = document.getElementById("rainVal");
+        const rangeSlider = document.getElementById("rangeSlider");
+        const rangeValue = document.getElementById("rangeValue");
+        const logText = document.getElementById("logText");
+
+        let currentMode = "AUTO";
+
+        // 파이어스토어 데이터 실시간 동기화 (window/status 문서 감시)
+        onSnapshot(doc(db, "window", "status"), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                // 1. 창문 상태 표시
+                if (data.state === "OPEN") {
+                    statusElement.innerText = "열림 (Open)";
+                    statusElement.className = "status-open";
+                } else {
+                    statusElement.innerText = "닫힘 (Closed)";
+                    statusElement.className = "status-closed";
+                }
+
+                // 2. 모드 표시
+                if (data.mode) {
+                    currentMode = data.mode;
+                    modeElement.innerText = currentMode;
+                }
+
+                // 3. 센서 값 업데이트 (데이터가 들어올 경우 반영)
+                if (data.temperature !== undefined) tempElement.innerText = data.temperature;
+                if (data.humidity !== undefined) humElement.innerText = data.humidity;
+                if (data.dust !== undefined) dustElement.innerText = data.dust;
+                if (data.rain !== undefined) rainElement.innerText = data.rain ? "비 감지 🌧️" : "맑음 ☀️";
+
+                // 4. 개폐율 슬라이더 동기화
+                if (data.percent !== undefined) {
+                    rangeSlider.value = data.percent;
+                    rangeValue.innerText = data.percent;
+                }
+
+                // 5. 최근 로그 표시
+                if (data.log) {
+                    logText.innerText = data.log;
+                }
+            } else {
+                statusElement.innerText = "데이터 없음";
+            }
+        });
+
+        // 명령 전송 함수 (공통)
+        async function updateFirestore(updateData) {
+            try {
+                await setDoc(doc(db, "window", "status"), updateData, { merge: true });
+                console.log("전송 성공:", updateData);
+            } catch (e) {
+                console.error("전송 실패:", e);
+                alert("명령 전송에 실패했습니다.");
+            }
+        }
+
+        // 전체 열기/닫기 버튼
+        window.controlWindow = function(command, percent) {
+            const logMsg = `${command === 'OPEN' ? '수동 창문 열기' : '수동 창문 닫기'} (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                state: command,
+                percent: percent,
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+
+        // 슬라이더 조절 시
+        window.sliderControl = function(val) {
+            rangeValue.innerText = val;
+            const stateVal = val > 0 ? "OPEN" : "CLOSE";
+            const logMsg = `개폐율 ${val}% 조절 (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                state: stateVal,
+                percent: Number(val),
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+
+        // 모드 전환 버튼
+        window.toggleMode = function() {
+            const newMode = currentMode === "AUTO" ? "MANUAL" : "AUTO";
+            const logMsg = `모드 변경: ${newMode} (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                mode: newMode,
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+    </script>
+
+</body>
+</html>
