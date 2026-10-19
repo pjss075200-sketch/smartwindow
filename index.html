@@ -104,9 +104,9 @@
     <div class="container">
         <h2>🪟 스마트 창문 제어 시스템</h2>
         
-        <!-- 0. 실시간 바깥 날씨 정보 (성남시 기준) -->
+        <!-- 0. 실시간 바깥 날씨 정보 (기기 위치 기준) -->
         <div class="section-box" style="background: #e8f4fd; border-color: #bbeeff;">
-            <div class="section-title" style="color: #0056b3;">🌍 실시간 외부 날씨 (성남시)</div>
+            <div class="section-title" style="color: #0056b3;">🌍 실시간 외부 날씨</div>
             <div class="info-grid">
                 <div class="info-item">외부 날씨: <span id="weatherState">불러오는 중...</span></div>
                 <div class="info-item">외부 기온: <span id="weatherTemp">--</span>°C</div>
@@ -192,10 +192,29 @@
 
         let currentMode = "AUTO";
 
-        // 🌍 실시간 외부 날씨 가져오기 (성남시 위도: 37.420, 경도: 127.126 기준)
+        // 🌍 사용자 기기의 GPS 위치 기반 실시간 외부 날씨 가져오기
         async function fetchExternalWeather() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        loadWeather(lat, lon);
+                    },
+                    (error) => {
+                        console.warn("위치 정보를 불러올 수 없어 기본 좌표(성남시)를 사용합니다.", error);
+                        loadWeather(37.420, 127.126); // 실패 시 기본 성남시 좌표 사용
+                    },
+                    { timeout: 10000 }
+                );
+            } else {
+                loadWeather(37.420, 127.126);
+            }
+        }
+
+        async function loadWeather(lat, lon) {
             try {
-                const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=37.420&longitude=127.126&current_weather=true');
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
                 const data = await res.json();
                 
                 if (data && data.current_weather) {
@@ -267,4 +286,38 @@
             }
         }
 
-        window.controlWindow = function(
+        window.controlWindow = function(command, percent) {
+            const logMsg = `${command === 'OPEN' ? '수동 창문 열기' : '수동 창문 닫기'} (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                state: command,
+                percent: percent,
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+
+        window.sliderControl = function(val) {
+            rangeValue.innerText = val;
+            const stateVal = val > 0 ? "OPEN" : "CLOSE";
+            const logMsg = `개폐율 ${val}% 조절 (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                state: stateVal,
+                percent: Number(val),
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+
+        window.toggleMode = function() {
+            const newMode = currentMode === "AUTO" ? "MANUAL" : "AUTO";
+            const logMsg = `모드 변경: ${newMode} (${new Date().toLocaleTimeString()})`;
+            updateFirestore({
+                mode: newMode,
+                log: logMsg,
+                timestamp: new Date()
+            });
+        };
+    </script>
+
+</body>
+</html>
