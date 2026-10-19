@@ -104,9 +104,9 @@
     <div class="container">
         <h2>🪟 스마트 창문 제어 시스템</h2>
         
-        <!-- 0. 실시간 바깥 날씨 정보 (기기 위치 기반) -->
+        <!-- 0. 실시간 바깥 날씨 정보 (성남시 기준) -->
         <div class="section-box" style="background: #e8f4fd; border-color: #bbeeff;">
-            <div class="section-title" style="color: #0056b3;">🌍 실시간 외부 날씨 (<span id="locationText">현재 위치</span>)</div>
+            <div class="section-title" style="color: #0056b3;">🌍 실시간 외부 날씨 (성남시)</div>
             <div class="info-grid">
                 <div class="info-item">외부 날씨: <span id="weatherState">불러오는 중...</span></div>
                 <div class="info-item">외부 기온: <span id="weatherTemp">--</span>°C</div>
@@ -118,3 +118,153 @@
             <div class="section-title">📊 시스템 상태</div>
             <div style="font-size: 1.1rem; margin-bottom: 8px;">
                 현재 상태: <span id="windowStatus" class="status-closed">확인 중...</span>
+            </div>
+            <div style="font-size: 0.95rem; color: #555;">
+                운영 모드: <strong id="modeStatus">AUTO</strong>
+            </div>
+            <button class="btn-mode" onclick="toggleMode()">모드 변경 (AUTO ⇄ MANUAL)</button>
+        </div>
+
+        <!-- 2. 센서 정보 (온습도, 미세먼지, 빗물) -->
+        <div class="section-box">
+            <div class="section-title">🌤️ 실내 환경 센서</div>
+            <div class="info-grid">
+                <div class="info-item">실내 온도: <span id="tempVal">--</span>°C</div>
+                <div class="info-item">실내 습도: <span id="humVal">--</span>%</div>
+                <div class="info-item">미세먼지: <span id="dustVal">--</span> ㎍/㎥</div>
+                <div class="info-item">강우 감지: <span id="rainVal">--</span></div>
+            </div>
+        </div>
+
+        <!-- 3. 수동 제어 및 개폐율 조절 -->
+        <div class="section-box">
+            <div class="section-title">🕹️ 수동 제어 패널</div>
+            <div class="btn-group">
+                <button class="btn-open" onclick="controlWindow('OPEN', 100)">완전 열기</button>
+                <button class="btn-close" onclick="controlWindow('CLOSE', 0)">완전 닫기</button>
+            </div>
+            <div class="slider-container">
+                <label for="rangeSlider" style="font-size: 0.9rem; display: block; margin-bottom: 5px;">
+                    개폐율 조절: <span id="rangeValue">0</span>%
+                </label>
+                <input type="range" id="rangeSlider" min="0" max="100" value="0" onmouseup="sliderControl(this.value)">
+            </div>
+        </div>
+
+        <!-- 4. 최근 동작 로그 -->
+        <div class="section-box" style="margin-bottom: 0;">
+            <div class="section-title">📝 최근 기록</div>
+            <div id="logText" class="log-box">기록을 불러오는 중...</div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK 및 외부 날씨 연동 스크립트 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
+
+        // 🔥 본인의 파이어베이스 설정값
+        const firebaseConfig = {
+            apiKey: "AIzaSyBZ_K4PTEklsEigH8lwVYbWeGOGZRYIgac",
+            authDomain: "smartwindow-88a10.firebaseapp.com",
+            projectId: "smartwindow-88a10",
+            storageBucket: "smartwindow-88a10.firebasestorage.app",
+            messagingSenderId: "766578741499",
+            appId: "1:766578741499:web:722aa6b05b632432d0a05e"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const statusElement = document.getElementById("windowStatus");
+        const modeElement = document.getElementById("modeStatus");
+        const tempElement = document.getElementById("tempVal");
+        const humElement = document.getElementById("humVal");
+        const dustElement = document.getElementById("dustVal");
+        const rainElement = document.getElementById("rainVal");
+        const rangeSlider = document.getElementById("rangeSlider");
+        const rangeValue = document.getElementById("rangeValue");
+        const logText = document.getElementById("logText");
+        
+        // 날씨 표시 DOM
+        const weatherStateEl = document.getElementById("weatherState");
+        const weatherTempEl = document.getElementById("weatherTemp");
+
+        let currentMode = "AUTO";
+
+        // 🌍 실시간 외부 날씨 가져오기 (성남시 위도: 37.420, 경도: 127.126 기준)
+        async function fetchExternalWeather() {
+            try {
+                const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=37.420&longitude=127.126&current_weather=true');
+                const data = await res.json();
+                
+                if (data && data.current_weather) {
+                    weatherTempEl.innerText = data.current_weather.temperature;
+                    
+                    // 날씨 코드(WMO Weather interpretation codes) 변환
+                    const wcode = data.current_weather.weathercode;
+                    let weatherDesc = "맑음 ☀️";
+                    if (wcode >= 1 && wcode <= 3) weatherDesc = "구름 조금 ⛅";
+                    else if (wcode >= 45 && wcode <= 48) weatherDesc = "안개 🌫️";
+                    else if (wcode >= 51 && wcode <= 67) weatherDesc = "비 🌧️";
+                    else if (wcode >= 71 && wcode <= 77) weatherDesc = "눈 ❄️";
+                    else if (wcode >= 95) weatherDesc = "천둥번개 ⚡";
+
+                    weatherStateEl.innerText = weatherDesc;
+                }
+            } catch (e) {
+                console.error("날씨 정보를 불러오지 못했습니다.", e);
+                weatherStateEl.innerText = "조회 실패";
+            }
+        }
+
+        // 페이지 접속 시 날씨 불러오기 실행 (30분마다 자동 갱신)
+        fetchExternalWeather();
+        setInterval(fetchExternalWeather, 30 * 60 * 1000);
+
+        // 파이어스토어 데이터 실시간 동기화 (window/status 문서 감시)
+        onSnapshot(doc(db, "window", "status"), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                if (data.state === "OPEN") {
+                    statusElement.innerText = "열림 (Open)";
+                    statusElement.className = "status-open";
+                } else {
+                    statusElement.innerText = "닫힘 (Closed)";
+                    statusElement.className = "status-closed";
+                }
+
+                if (data.mode) {
+                    currentMode = data.mode;
+                    modeElement.innerText = currentMode;
+                }
+
+                if (data.temperature !== undefined) tempElement.innerText = data.temperature;
+                if (data.humidity !== undefined) humElement.innerText = data.humidity;
+                if (data.dust !== undefined) dustElement.innerText = data.dust;
+                if (data.rain !== undefined) rainElement.innerText = data.rain ? "비 감지 🌧️" : "맑음 ☀️";
+
+                if (data.percent !== undefined) {
+                    rangeSlider.value = data.percent;
+                    rangeValue.innerText = data.percent;
+                }
+
+                if (data.log) {
+                    logText.innerText = data.log;
+                }
+            } else {
+                statusElement.innerText = "데이터 없음";
+            }
+        });
+
+        async function updateFirestore(updateData) {
+            try {
+                await setDoc(doc(db, "window", "status"), updateData, { merge: true });
+            } catch (e) {
+                console.error("전송 실패:", e);
+                alert("명령 전송에 실패했습니다.");
+            }
+        }
+
+        window.controlWindow = function(
